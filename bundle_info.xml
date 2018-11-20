@@ -1,0 +1,61 @@
+<!--
+ChimeraX bundle names must start with "ChimeraX-"
+to avoid clashes with package names in pypi.python.org.
+When uploaded to the ChimeraX toolshed, the bundle
+will be displayed without the ChimeraX- prefix.
+-->
+
+<BundleInfo name="pyLovo"
+	    version="0.1" package="chimerax.pylovo"
+  	    minSessionVersion="1" maxSessionVersion="1">
+
+  <!-- Additional information about bundle source -->
+  <Author>Haotian Li</Author>
+  <Email>hl2368@nyu.edu</Email>
+  <URL>https://www.rbvi.ucsf.edu/chimerax/</URL>
+
+  <!-- Synopsis is a one-line description
+       Description is a full multi-line description -->
+  <Synopsis>Testing AlphaSpace plugin</Synopsis>
+  <Description> Tessellation
+  </Description>
+
+  <!-- Categories is a list where this bundle should appear -->
+  <Categories>
+    <Category name="General"/>
+  </Categories>
+
+  <!-- DataFiles is a list of additional files to include in bundle -->
+  <!--<DataFiles>-->
+    <!--<DataFile>docs/user/commands/tutorial.html</DataFile>-->
+  <!--</DataFiles>-->
+
+  <!-- Dependencies on other ChimeraX/Python packages -->
+  <Dependencies>
+    <Dependency name="ChimeraX-Core" version=">=0.1"/>
+  </Dependencies>
+
+    <DataFiles>
+    <DataFile>gui.html</DataFile>
+  </DataFiles>
+
+  <Classifiers>
+    <!-- Development Status should be compatible with bundle version number -->
+    <PythonClassifier>Development Status :: 3 - Alpha</PythonClassifier>
+    <PythonClassifier>License :: Freeware</PythonClassifier>
+    <!-- ChimeraX classifiers describe supplied functionality -->
+    <!-- Register two commands for printing the center of mass
+	 and selecting/coloring atom(s) nearest the center of mass of atoms -->
+    <ChimeraXClassifier>ChimeraX :: Command :: lovoscan :: General ::
+      Run LovoScan</ChimeraXClassifier>
+    <ChimeraXClassifier>ChimeraX :: Command :: lovoalign :: General ::
+      Run LovoScan</ChimeraXClassifier>
+        <!--<ChimeraXClassifier>ChimeraX :: Command :: dtm :: General ::-->
+      <!--Show info </ChimeraXClassifier>-->
+    <!--<ChimeraXClassifier>ChimeraX :: Command :: change_bgcolor :: General ::-->
+    <!--Show info </ChimeraXClassifier>-->
+
+
+         </Classifiers>
+
+</BundleInfo>
