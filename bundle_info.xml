@@ -32,12 +32,9 @@ will be displayed without the ChimeraX- prefix.
 
   <!-- Dependencies on other ChimeraX/Python packages -->
   <Dependencies>
-    <Dependency name="ChimeraX-Core" version=">=0.1"/>
+    <Dependency name="ChimeraX-Core" version=">=0.0"/>
+    <Dependency name="scikit-learn" version=">=0.20.3"/>
   </Dependencies>
-
-    <DataFiles>
-    <DataFile>gui.html</DataFile>
-  </DataFiles>
 
   <Classifiers>
     <!-- Development Status should be compatible with bundle version number -->
@@ -46,10 +43,10 @@ will be displayed without the ChimeraX- prefix.
     <!-- ChimeraX classifiers describe supplied functionality -->
     <!-- Register two commands for printing the center of mass
 	 and selecting/coloring atom(s) nearest the center of mass of atoms -->
-    <ChimeraXClassifier>ChimeraX :: Command :: lovoscan :: General ::
-      Run LovoScan</ChimeraXClassifier>
-    <ChimeraXClassifier>ChimeraX :: Command :: lovoalign :: General ::
-      Run LovoScan</ChimeraXClassifier>
+    <ChimeraXClassifier>ChimeraX :: Command :: lovo traj :: General ::
+      Run LovoAlign</ChimeraXClassifier>
+    <ChimeraXClassifier>ChimeraX :: Command :: lovo :: General ::
+      Run LovoAlign</ChimeraXClassifier>
         <!--<ChimeraXClassifier>ChimeraX :: Command :: dtm :: General ::-->
       <!--Show info </ChimeraXClassifier>-->
     <!--<ChimeraXClassifier>ChimeraX :: Command :: change_bgcolor :: General ::-->

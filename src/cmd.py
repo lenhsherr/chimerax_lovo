@@ -2,166 +2,157 @@
 # Functions and descriptions for registering using ChimeraX bundle API
 # ==========================================================================
 
-import matplotlib.pyplot as plt
-from chimerax.atomic import AtomsArg, Atoms
-from chimerax.core.commands import CmdDesc, BoolArg, EnumOf  # Command description
+from chimerax.atomic import AtomsArg
+from chimerax.core.colors import Color
+from chimerax.core.commands import CmdDesc, BoolArg, EnumOf, IntArg  # Command description
 from chimerax.core.commands import FloatArg
+from chimerax.core.geometry import align_points
+from chimerax.core.objects import Objects
 from chimerax.std_commands.align import *
+from chimerax.std_commands.color import color
+from chimerax.std_commands.select import select
 
 from .lovo import *
 
 
-def lovoScan(session, ref: Atoms, moving):
-    """
+def lovo(session, atoms, to=None, n_clusters = 3,plot = False):
+    from chimerax.match_maker.match import cmd_match
+    from .lovo import normalize_msd
 
-    """
+    for ret in cmd_match(session, match_atoms=atoms, to=to, cutoff_distance=None, compute_ss=False):
+        ref_atoms, match_atoms, paired_RMSD, overall_RMSD, transformation_matrix = ret
 
-    log = session.logger
+        match_atoms_traj = np.array([match_atoms.scene_coords])
+
+        # Cluster based on indices
+        section_indices, msd = alovo_traj(match_atoms_traj, ref=ref_atoms.scene_coords, n_clusters=n_clusters)
+
+        b_factor = rmsf(match_atoms_traj)
+
+        section_colors = [[0, 240, 0, 1],  # Green RGBA
+                          [240, 130, 0, 1],  # Yellow
+                          [240, 0, 0, 1],  # Red
+                          ]
+
+        if plot:
+            # Histogram Plot
+            plt.figure(0)
+            bins = np.linspace(0, max(msd), int(max(msd)) * 10)
+            for i, indices in enumerate(section_indices):
+                plt.hist(msd[indices], bins=bins, alpha=0.5, label=str(i), color=[np.array(section_colors[i]) / 240])
+            plt.xlabel('RMSD')
+            plt.ylabel('Count')
+            plt.show()
+
+            # Scatter Plot
+            plt.figure(1)
+            for i, indices in enumerate(section_indices):
+                plt.scatter(msd[indices], normalize_msd(msd)[indices], color=[np.array(section_colors[i]) / 240],
+                            alpha=1)
+            plt.xlabel('RMSD')
+            plt.ylabel('nRMSD')
+            plt.show()
+
+            # # rmsf vs msd
+            # plt.figure(2)
+            # for i, indices in enumerate(section_indices):
+            #     plt.scatter(b_factor[indices], msd[indices], color=[np.array(section_colors[i]) / 240], alpha=1)
+            # plt.xlabel('B-factor')
+            # plt.ylabel('RMSD')
+            # plt.show()
+
+        for i in range(len(section_indices)):
+            color(session, Objects(match_atoms[section_indices[i]]), Color(rgba=section_colors[i]))
+            color(session, Objects(ref_atoms[section_indices[i]]), Color(rgba=section_colors[i]))
+
+        match_atoms.scene_coords = match_atoms.scene_coords - (centroid(match_atoms.scene_coords) - centroid(ref_atoms.scene_coords))
+        tf, rmsd = align_points(match_atoms.scene_coords[section_indices[0]], ref_atoms.scene_coords[section_indices[0]])
+        move_atoms(match_atoms, ref_atoms, tf, move='structure')
+
+    return
 
 
-    ref_coords = ref.coords
-    moving_coords = moving.coords
+lovo_desc = CmdDesc(required=[('atoms', AtomsArg)],
+                    keyword=[('to', AtomsArg),
+                             ('move', EnumOf(('atoms', 'residues', 'chains', 'structures',
+                                              'structure atoms', 'nothing'))),
+                             ('n_cluster', IntArg),
+                             ('plot', BoolArg),
 
-    print(ref_coords[0])
-    print(moving_coords[0])
-    print()
-
-    phis = []
-    partial_rmsds = []
-
-    for phi in np.arange(0.1, 1.0, 0.05):
-        partial_rmsd, align_indices = getPartialRMSD(moving=moving_coords, ref=ref_coords, phi=phi)
-        phis.append(phi)
-        partial_rmsds.append(partial_rmsd)
-        # print("{}".format(partial_rmsd))
-
-    plt.plot(phis, partial_rmsds, linestyle='-', marker='o')
-    plt.show()
+                             ],
+                    required_arguments=['to'],
+                    synopsis='Align one set of atoms to another')
 
 
-lovoScan_desc = CmdDesc(
-    required=[("ref", AtomsArg), ("moving", AtomsArg)])
+def lovo_traj(session, match_atoms, to=None, n_clusters=3, plot=False):
+    match_structures = match_atoms.structures.unique()
 
-
-
-
-def lovoAlign(session, atoms, to_atoms=None, move=None, each=None,
-          match_chain_ids=False, match_numbering=False, match_atom_names=False,
-          sequence=None, report_matrix=False, phi = None, scan_phi = None):
-    """Move atoms to minimize RMSD with to_atoms.
-    Returns matched atoms and matched to_atoms, matched atom rmsd, paired atom rmsd, and transform.
-    The matched atoms can be fewer than the paired atoms if cutoff distance is specified.
-    If "each" is not None then nothing is returned.
-
-    If 'move' is 'structures', superimpose the models by changing the model positions.
-    If it is 'atoms', 'residues', 'chains' or 'structure atoms', then atoms promoted extended
-    to this level are moved.  If move is False move nothing or True move structures.
-    If move is an Atoms collection then move only the specified atoms.
-
-    If 'each' is "structure" then each structure of atoms is separately
-    aligned to the to_atoms.  If 'each' is "chain" then each chain is
-    aligned separately.  If 'each' is "coordset" then each coordinate set
-    of the first set of atoms (which must belong to a single structure)
-    is aligned. Default is that all atoms are aligned as one group.
-
-    If 'match_chain_ids' is true then only atoms with matching chain identifiers are paired.
-    Unpaired atoms or to_atoms are not used for alignment.
-
-    If 'match_numbering' is true then only atoms with matching residue numbers are paired.
-    It is assumed the atoms are in residue number order.  Unpaired atoms or to_atoms
-    are not used.
-
-    If 'match_atom_names' is true then only atoms with matching names are paired.
-    Unpaired atoms or to_atoms are not used for alignment.
-
-    If 'sequence' names a reference sequence then the previously calculated alignment
-    of atoms and to_atoms to that reference sequence is used to pair the atoms.
-
-    If 'report_matrix' is True, report the transformation matrix to
-    the Reply Log.
-
-    If 'scan_phi' is True, output the rmsd vs phi graph.
-
-    """
-
-    import numpy as np
-    from chimerax.core.geometry import align_points
-
-    if move is None:
-        move = 'structures'
-
-    log = session.logger
-    if sequence is None:
-        patoms, pto_atoms = paired_atoms(atoms, to_atoms, match_chain_ids,
-                                         match_numbering, match_atom_names)
-        da, dra = len(atoms) - len(patoms), len(to_atoms) - len(pto_atoms)
-        if da > 0 or dra > 0:
-            log.info('Pairing dropped %d atoms and %d reference atoms' % (da, dra))
+    if to is None:
+        ref_atoms = match_structures[0].atoms.intersect(match_atoms)
+        match_atoms_list = [structure.atoms.intersect(match_atoms) for structure in match_structures[1:]]
     else:
-        patoms, pto_atoms = sequence_alignment_pairing(atoms, to_atoms, sequence)
+        ref_atoms = to
+        match_atoms_list = [structure.atoms.intersect(match_atoms) for structure in match_structures]
 
-    npa, npta = len(patoms), len(pto_atoms)
-    if npa != npta:
-        raise UserError('Must align equal numbers of atoms, got %d and %d' % (npa, npta))
-    elif npa == 0:
-        raise UserError('No atoms paired for alignment')
+    ref_atoms = ref_atoms[np.argsort(ref_atoms.serial_numbers)]
+    match_atoms_list = [match_atoms[np.argsort(match_atoms.serial_numbers)] for match_atoms in match_atoms_list]
 
-    xyz_to = pto_atoms.scene_coords
+    match_atoms_list[0] = match_atoms_list[0][np.argsort(match_atoms_list[0].serial_numbers)]
 
-    xyz_from = patoms.scene_coords
+    match_atoms_traj = np.array([atoms.scene_coords for atoms in match_atoms_list])
 
+    # Cluster based on indices
+    section_indices, msd = alovo_traj(match_atoms_traj, ref=ref_atoms.scene_coords, n_clusters=n_clusters)
 
+    b_factor = rmsf(match_atoms_traj)
 
+    section_colors = [[0, 240, 0, 1],  # Green RGBA
+                      [240, 130, 0, 1],  # Yellow
+                      [240, 0, 0, 1],  # Red
+                      ]
 
-    if scan_phi:
-        phis = []
-        partial_rmsds = []
-
-
-        for phi in np.arange(0.1, 1.0, 0.05):
-            partial_rmsd, align_indices = getPartialRMSD(moving=xyz_from, ref=xyz_to, phi=phi)
-            phis.append(phi)
-            partial_rmsds.append(partial_rmsd)
-
-        plt.plot(phis, partial_rmsds, linestyle='-', marker='o')
-        plt.xlabel("Fraction of atoms to use")
-        plt.ylabel("RMSD of used atoms")
+    if plot:
+        # Histogram Plot
+        plt.figure(0)
+        bins = np.linspace(0, max(msd), int(max(msd)) * 10)
+        for i, indices in enumerate(section_indices):
+            plt.hist(msd[indices], bins=bins, alpha=0.5, label=str(i), color=[np.array(section_colors[i]) / 240])
+        plt.xlabel('RMSD')
+        plt.ylabel('Count')
         plt.show()
-        return
-    else:
-        if phi is None:
-            phi = 1.0
-        partial_rmsd, stable_indices = (getPartialRMSD(xyz_from, xyz_to, phi))
-        tf, rmsd = align_points(xyz_from[stable_indices], xyz_to[stable_indices])
 
-        full_rmsd = rmsd
-        matched_patoms, matched_pto_atoms = patoms, pto_atoms
-        msg = 'RMSD between %d atom pairs is %.3f angstroms' % (len(stable_indices), rmsd)
+        # Scatter Plot
+        plt.figure(1)
+        for i, indices in enumerate(section_indices):
+            plt.scatter(msd[indices], normalize_msd(msd)[indices], color=[np.array(section_colors[i]) / 240], alpha=1)
+        plt.xlabel('RMSD')
+        plt.ylabel('nRMSD')
+        plt.show()
 
-        if report_matrix:
-            log.info(matrix_text(tf, atoms, to_atoms))
+        #rmsf vs msd
+        # plt.figure(2)
+        # for i, indices in enumerate(section_indices):
+        #     plt.scatter(b_factor[indices], msd[indices], color=[np.array(section_colors[i]) / 240], alpha=1)
+        # plt.xlabel('B-factor')
+        # plt.ylabel('RMSD')
+        # plt.show()
 
-        log.status(msg)
-        log.info(msg)
+    for i in range(len(section_indices)):
+        for atoms in match_atoms_list:
+            color(session, Objects(atoms[section_indices[i]]), Color(rgba=section_colors[i]))
+        color(session, Objects(ref_atoms[section_indices[i]]), Color(rgba=section_colors[i]))
 
-        move_atoms(atoms, to_atoms, tf, move)
+    for atoms in match_atoms_list:
+        atoms.scene_coords = atoms.scene_coords - (centroid(atoms.scene_coords) - centroid(ref_atoms.scene_coords))
+        tf, rmsd = align_points(atoms.scene_coords[section_indices[0]], ref_atoms.scene_coords[section_indices[0]])
+        move_atoms(atoms, ref_atoms, tf, move='structure')
 
-        return matched_patoms, matched_pto_atoms, rmsd, full_rmsd, tf
+    return
 
 
-
-
-
-lovoAlign_desc = CmdDesc(required = [('atoms', AtomsArg)],
-               keyword = [('to_atoms', AtomsArg),
-                          ('move', EnumOf(('atoms', 'residues', 'chains', 'structures',
-                                           'structure atoms', 'nothing'))),
-                          ('each', EnumOf(('chain', 'structure', 'coordset'))),
-                          ('match_chain_ids', BoolArg),
-                          ('match_numbering', BoolArg),
-                          ('match_atom_names', BoolArg),
-                          ('report_matrix', BoolArg),
-                          ('phi', FloatArg),
-                          ('scan_phi', BoolArg)],
-               required_arguments = ['to_atoms'],
-               synopsis = 'Align one set of atoms to another')
+lovo_traj_desc = CmdDesc(required=[('match_atoms', AtomsArg)],
+                         keyword=[('to', AtomsArg),
+                                  ('n_clusters', IntArg),
+                                  ('plot', BoolArg),
+                                  ],
+                         synopsis='Align one set of atoms to another')

@@ -1,5 +1,7 @@
 import numpy as np
-
+from scipy.spatial.distance import cdist
+from sklearn.cluster import KMeans
+import matplotlib.pyplot as plt
 
 def getPartialRMSD(moving, ref, phi):
     """
@@ -10,85 +12,109 @@ def getPartialRMSD(moving, ref, phi):
     :return: rmsd, minimal_movement_indices
     """
 
-    moved =  moving - (centroid(moving) - centroid(ref))
-    msd_series = [np.sum(msd(moved,ref))]
-
+    # translate
+    moved = moving - (centroid(moving) - centroid(ref))
+    # calculate rotational matrix
     rot = quaternion_rotate(moved, ref)
-
+    # calculate aligned moved position
     moved = np.dot(moved, rot)
 
+    _msd = get_msd(moved, ref)
+    core_indices = np.argsort(_msd)[0:int(len(moved) * phi)]
+
+    while True:
+        rot = quaternion_rotate(moved[core_indices], ref[core_indices])
+        moved = np.dot(moved, rot)
+        _msd = get_msd(moved, ref)
+        new_core_indices = np.argsort(_msd)[0:int(len(moved) * phi)]
+        if np.array_equal(new_core_indices, core_indices):
+            # Check if converge
+            break
+        else:
+            core_indices = new_core_indices
+
+    return rmsd(moved[core_indices], ref[core_indices]), core_indices
 
 
-    _msd = msd(moved, ref)
-    truncated_sorted_indices = np.arange(len(moved))
-    while not ifConverged(msd_series,cutoff=0.01):
+def normalize_msd(msd):
+    rmsd = np.mean(msd)
+    return 1-np.exp(-np.square(msd / rmsd)/2)
 
-        truncated_sorted_indices = np.argsort(_msd)[0:int(len(moved) * phi)]
-        rot = quaternion_rotate(moved[truncated_sorted_indices],ref[truncated_sorted_indices])
 
-        moved = np.dot(moved,rot)
-
-        _msd = msd(moved, ref)
-
-        _msd_l = np.sum(_msd[truncated_sorted_indices])
-
-        msd_series.append(np.sum(_msd_l))
-
-    return rmsd(moved[truncated_sorted_indices],ref[truncated_sorted_indices]), truncated_sorted_indices
-
-def ifConverged(series,cutoff = 0.01):
-
-    if len(series) < 3:
-        return False
-
-    if np.max(series)  == np.min(series):
-        return True
-
-    else:
-        difference =  np.abs((series[-1]-series[-2])/(np.max(series) - np.min(series)))
-        return difference < cutoff
-
-def quaternion_rmsd(P, Q):
+def alovo_traj(coordset, ref, n_clusters=3, similarity_function=normalize_msd):
     """
-    Rotate matrix P unto Q and calculate the RMSD
 
-    based on doi:10.1016/1049-9660(91)90036-O
-
-    Parameters
-    ----------
-    P : array
-        (N,D) matrix, where N is points and D is dimension.
-    P : array
-        (N,D) matrix, where N is points and D is dimension.
-
-    Returns
-    -------
-    rmsd : float
+    :param coordset:
+    :param ref_index:
+    :param n_clusters:
+    :param similarity_function:
+    :return: section_indices, coord_msd
     """
-    rot = quaternion_rotate(P, Q)
-    P = np.dot(P, rot)
-    return rmsd(P, Q)
+    if len(coordset.shape) != 3 or coordset.shape[2] != 3:
+        raise ValueError('Invalid Coordset dimensions, must be (X,Y,3), you provided {}'.format(coordset.shape))
 
-def quaternion_msd(P, Q):
+
+    #  Calculate initial msd after iteration
+    coord_msd = np.zeros(coordset.shape[:2])
+    for i in np.arange(coordset.shape[0]):
+        coordset[i] = coordset[i] - (centroid(coordset[i]) - centroid(ref))
+        rot = quaternion_rotate(coordset[i], ref)
+        coordset[i] = np.dot(coordset[i], rot)
+        coord_msd[i] = get_msd(coordset[i], ref)
+
+    # Calculate the b-factor / rmsf
+
+
+
+    # Calculate the mean msd across the trajectory
+    mean_normalized_coord_msd = similarity_function(np.mean(coord_msd, axis=0))
+
+    kmean = KMeans(n_clusters=n_clusters, random_state=0)
+
+    kmean.fit(np.stack([mean_normalized_coord_msd, np.zeros(len(mean_normalized_coord_msd))]).transpose())
+    section_indices = np.array([kmean.labels_ == k for k in np.arange(kmean.n_clusters)])
+    section_indices = section_indices[np.argsort([np.mean(mean_normalized_coord_msd[_]) for _ in section_indices])]
+
+    k = 0
+    while k < 100:
+        for i in np.arange(coordset.shape[0]):
+            rot = quaternion_rotate(coordset[i][section_indices[0]], ref[section_indices[0]])
+            coordset[i] = np.dot(coordset[i], rot)
+            coord_msd[i] = get_msd(coordset[i], ref)
+            # normalized_coord_msd[i] = similarity_function(coord_msd[i])
+        mean_normalized_coord_msd = similarity_function(np.mean(coord_msd, axis=0))
+        kmean.fit(np.stack([mean_normalized_coord_msd, np.zeros_like(mean_normalized_coord_msd)]).transpose())
+        new_section_indices = np.array([kmean.labels_ == k for k in np.arange(kmean.n_clusters)])
+        new_section_indices = new_section_indices[
+            np.argsort([np.mean(mean_normalized_coord_msd[_]) for _ in new_section_indices])]
+
+        if np.array_equal(section_indices[0], new_section_indices[0]):
+            section_indices = new_section_indices
+            break
+        else:
+            section_indices = new_section_indices
+            k += 1
+
+    # plt.scatter(mean_normalized_coord_msd,)
+
+    return section_indices, np.mean(coord_msd,axis=0)
+
+
+def rmsf(coordset):
     """
-    Rotate matrix P unto Q and calculate the per point RSD
-
-    based on doi:10.1016/1049-9660(91)90036-O
-
-    Parameters
-    ----------
-    P : array
-        (N,D) matrix, where N is points and D is dimension.
-    P : array
-        (N,D) matrix, where N is points and D is dimension.
-
-    Returns
-    -------
-    rmsd : float
+    Calculate the rmsf or the b-factor, which is average of distance to centroid across trajectory per atom, return
+    rmsf array with length of number ofs atoms
+    :param coordset:
+    :return:
     """
-    rot = quaternion_rotate(P, Q)
-    P = np.dot(P, rot)
-    return msd(P, Q)
+    for i in np.arange(1, coordset.shape[0]):
+        coordset[i] = coordset[i] - (centroid(coordset[i]) - centroid(coordset[0]))
+        rot = quaternion_rotate(coordset[i], coordset[0])
+        coordset[i] = np.dot(coordset[i], rot)
+    average_coordset = np.mean(coordset,axis=0)
+    rmsf = np.average(np.sqrt(np.sum(np.square((coordset - average_coordset)),axis=2)),axis=0)
+    return rmsf
+
 
 
 def quaternion_transform(r):
@@ -108,10 +134,10 @@ def makeW(r1, r2, r3, r4=0):
     matrix involved in quaternion rotation
     """
     W = np.asarray([
-             [r4, r3, -r2, r1],
-             [-r3, r4, r1, r2],
-             [r2, -r1, r4, r3],
-             [-r1, -r2, -r3, r4]])
+        [r4, r3, -r2, r1],
+        [-r3, r4, r1, r2],
+        [r2, -r1, r4, r3],
+        [-r1, -r2, -r3, r4]])
     return W
 
 
@@ -120,10 +146,10 @@ def makeQ(r1, r2, r3, r4=0):
     matrix involved in quaternion rotation
     """
     Q = np.asarray([
-             [r4, -r3, r2, r1],
-             [r3, r4, -r1, r2],
-             [-r2, r1, r4, r3],
-             [-r1, -r2, -r3, r4]])
+        [r4, -r3, r2, r1],
+        [r3, r4, -r1, r2],
+        [-r2, r1, r4, r3],
+        [-r1, -r2, -r3, r4]])
     return Q
 
 
@@ -133,9 +159,9 @@ def quaternion_rotate(X, Y):
 
     Parameters
     ----------
-    X : array
+    X : ndarray
         (N,D) matrix, where N is points and D is dimension.
-    Y: array
+    Y:  ndarray
         (N,D) matrix, where N is points and D is dimension.
 
     Returns
@@ -176,7 +202,7 @@ def centroid(X):
         centeroid
 
     """
-    C = X.mean(axis=0)
+    C = np.mean(X, axis=0)
     return C
 
 
@@ -201,10 +227,11 @@ def rmsd(V, W):
     N = len(V)
     rmsd = 0.0
     for v, w in zip(V, W):
-        rmsd += sum([(v[i] - w[i])**2.0 for i in range(D)])
-    return np.sqrt(rmsd/N)
+        rmsd += sum([(v[i] - w[i]) ** 2.0 for i in range(D)])
+    return np.sqrt(rmsd / N)
 
-def msd(V,W) -> np.array:
+
+def get_msd(V, W) -> np.ndarray:
     """
     Calculate mean-square deviation from two sets of vectors V and W.
 
@@ -221,4 +248,4 @@ def msd(V,W) -> np.array:
         Root-mean-square deviation
 
     """
-    return np.sum(np.square(V-W),axis=1)
+    return np.sqrt(np.sum(np.square(V - W), axis=1))

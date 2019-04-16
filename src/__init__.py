@@ -31,16 +31,14 @@ class _MyAPI(BundleAPI):
         # If the description does not contain a synopsis, we
         # add the one in ``ci``, which comes from bundle_info.xml.
         from . import cmd
-        if  ci.name == 'lovoscan':
-            func = cmd.lovoScan
-            desc = cmd.lovoScan_desc
 
-        elif ci.name == 'lovoalign':
-            func = cmd.lovoAlign
-            desc = cmd.lovoAlign_desc
-        # elif ci.name == 'collapse':
-        #     func = cmd.collapse
-        #     desc = cmd.collapse_desc
+        if ci.name == 'lovo':
+            func = cmd.lovo
+            desc = cmd.lovo_desc
+
+        elif ci.name == 'lovo traj':
+            func = cmd.lovo_traj
+            desc = cmd.lovo_traj_desc
 
         else:
             raise ValueError("trying to register unknown command: %s" % ci.name)
