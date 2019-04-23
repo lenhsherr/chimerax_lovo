@@ -22,6 +22,10 @@ def lovo(session, atoms, to=None, n_clusters = 3,plot = False):
     for ret in cmd_match(session, match_atoms=atoms, to=to, cutoff_distance=None, compute_ss=False):
         ref_atoms, match_atoms, paired_RMSD, overall_RMSD, transformation_matrix = ret
 
+        ref_atoms = ref_atoms.residues.atoms
+        match_atoms = match_atoms.residues.atoms
+
+
         match_atoms_traj = np.array([match_atoms.scene_coords])
 
         # Cluster based on indices
