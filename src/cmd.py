@@ -15,16 +15,28 @@ from chimerax.std_commands.select import select
 from .lovo import *
 
 
-def lovo(session, atoms, to=None, n_clusters = 3,plot = False):
+def lovo(session, atoms, to=None, n_clusters=3, plot=False):
     from chimerax.match_maker.match import cmd_match
     from .lovo import normalize_msd
 
     for ret in cmd_match(session, match_atoms=atoms, to=to, cutoff_distance=None, compute_ss=False):
         ref_atoms, match_atoms, paired_RMSD, overall_RMSD, transformation_matrix = ret
 
-        ref_atoms = ref_atoms.residues.atoms
-        match_atoms = match_atoms.residues.atoms
+        match_res = match_atoms.residues
+        ref_res = ref_atoms.residues
 
+        overlap_res_idx = []
+        for i in range(len(match_res)):
+            if  (np.array_equiv(match_res[i].atoms.names, ref_res[i].atoms.names)):
+                overlap_res_idx.append(i)
+
+        print("{} out of {} residues matched".format(len(overlap_res_idx),len(match_res)))
+
+        match_res = match_res[np.array(overlap_res_idx)]
+        ref_res = ref_res[np.array(overlap_res_idx)]
+
+        ref_atoms = ref_res.atoms
+        match_atoms = match_res.atoms
 
         match_atoms_traj = np.array([match_atoms.scene_coords])
 
@@ -69,8 +81,10 @@ def lovo(session, atoms, to=None, n_clusters = 3,plot = False):
             color(session, Objects(match_atoms[section_indices[i]]), Color(rgba=section_colors[i]))
             color(session, Objects(ref_atoms[section_indices[i]]), Color(rgba=section_colors[i]))
 
-        match_atoms.scene_coords = match_atoms.scene_coords - (centroid(match_atoms.scene_coords) - centroid(ref_atoms.scene_coords))
-        tf, rmsd = align_points(match_atoms.scene_coords[section_indices[0]], ref_atoms.scene_coords[section_indices[0]])
+        match_atoms.scene_coords = match_atoms.scene_coords - (
+                centroid(match_atoms.scene_coords) - centroid(ref_atoms.scene_coords))
+        tf, rmsd = align_points(match_atoms.scene_coords[section_indices[0]],
+                                ref_atoms.scene_coords[section_indices[0]])
         move_atoms(match_atoms, ref_atoms, tf, move='structure')
 
     return
@@ -133,7 +147,7 @@ def lovo_traj(session, match_atoms, to=None, n_clusters=3, plot=False):
         plt.ylabel('nRMSD')
         plt.show()
 
-        #rmsf vs msd
+        # rmsf vs msd
         # plt.figure(2)
         # for i, indices in enumerate(section_indices):
         #     plt.scatter(b_factor[indices], msd[indices], color=[np.array(section_colors[i]) / 240], alpha=1)
